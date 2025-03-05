@@ -1,7 +1,6 @@
 import os
 import pickle
 from datetime import datetime
-
 # Configuration constants
 MAX_TODOS = 20
 TODO_FILE = "todos.pkl"
