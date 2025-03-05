@@ -6,191 +6,196 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-int tLength = 0;
-FILE *fp;
+// Maximum number of todos our app can handle
+#define MAX_TODOS 20
+// File name where todos are saved
+#define TODO_FILE "todos.bin"
 
-struct Todo
-{
-    char title[50];
-    char createdAt[50];
-    _Bool isCompleted;
-} todos[20];
+int todoCount = 0;          // Tracks how many todos we currently have
+FILE *todoFile;             // Pointer to manage our todo file
 
-void saveToFile()
-{
-    fp = fopen("todos.bin", "w");
-    if (!fp)
-    {
-        printf("Can't save your todo\n");
-    }
-    else
-    {
-        for (size_t i = 0; i < tLength; i++)
-        {
-            fwrite(&todos[i], sizeof(struct Todo), 1, fp);
+// Structure to store todo information
+struct TodoItem {
+    char title[50];         // Title of the todo (max 49 characters)
+    char createdAt[50];     // When the todo was created (format: day/month hour:min)
+    bool isCompleted;       // Whether the todo is done (true/false)
+} todoItems[MAX_TODOS];     // Array to store all todo items
+
+// Save all todos to a binary file
+void saveToFile() {
+    todoFile = fopen(TODO_FILE, "w");
+    if (!todoFile) {
+        printf("Oops! Couldn't save todos 😞\n");
+    } else {
+        // Write each todo to the file
+        for (int i = 0; i < todoCount; i++) {
+            fwrite(&todoItems[i], sizeof(struct TodoItem), 1, todoFile);
         }
-        fclose(fp);
+        fclose(todoFile);
     }
 }
 
-void getFileSize()
-{
-    fseek(fp, 0L, SEEK_END);
-    unsigned int long size = ftell(fp);
-    fseek(fp, 0L, SEEK_SET);
-    tLength = size / sizeof(struct Todo);
+// Calculate how many todos are stored in the file
+void calculateTodoCount() {
+    fseek(todoFile, 0L, SEEK_END);      // Jump to end of file
+    long fileSize = ftell(todoFile);    // Get file size
+    fseek(todoFile, 0L, SEEK_SET);      // Jump back to start
+    todoCount = fileSize / sizeof(struct TodoItem); // Calculate number of todos
 }
 
-void readFromFile()
-{
-    fp = fopen("todos.bin", "r");
-    if (!fp)
-    {
-        printf("We are not able to find any todos file\n");
-    }
-    else
-    {
-        getFileSize();
-        for (size_t i = 0; i < tLength; i++)
-        {
-            fread(&todos[i], sizeof(struct Todo), 1, fp);
+// Load todos from the file into our array
+void loadFromFile() {
+    todoFile = fopen(TODO_FILE, "r");
+    if (!todoFile) {
+        printf("No existing todos found. Let's start fresh! 🌟\n");
+    } else {
+        calculateTodoCount();
+        // Read each todo from the file
+        for (int i = 0; i < todoCount; i++) {
+            fread(&todoItems[i], sizeof(struct TodoItem), 1, todoFile);
         }
-        fclose(fp);
+        fclose(todoFile);
     }
 }
 
-void addTodo()
-{
-    // for todo title
-    char userInput[50];
-    printf("Type your todo \n>> ");
-    scanf("%[^\n]s", userInput);
-    strncpy(todos[tLength].title, userInput, 50);
+// Add a new todo to the list
+void addTodo() {
+    char todoTitle[50];
+    printf("What's your new todo? 📝\n>> ");
+    scanf(" %[^\n]", todoTitle);  // Read until newline (space before % skips whitespace)
 
-    // add time
-    char todoTime[50];
-    struct tm cTime;
-    time_t timeS = time(NULL);
-    localtime_r(&timeS, &cTime);
-    // 2/12 1:21
-    snprintf(todoTime, 50, "%i/%i %i:%i", cTime.tm_mday, cTime.tm_mon + 1, cTime.tm_hour, cTime.tm_min);
-    strcpy(todos[tLength].createdAt, todoTime);
+    // Copy title to our todo list
+    strncpy(todoItems[todoCount].title, todoTitle, 50);
 
-    //set boolean to false
-    todos[tLength].isCompleted = false;
-    tLength++;
+    // Get current time and format it
+    time_t currentTimeRaw;
+    struct tm currentTime;
+    time(&currentTimeRaw);
+    localtime_r(&currentTimeRaw, &currentTime);
+
+    // Create time string (day/month hour:min)
+    snprintf(todoItems[todoCount].createdAt, 50, "%d/%d %02d:%02d",
+             currentTime.tm_mday,
+             currentTime.tm_mon + 1,  // Months are 0-11, so +1 to make it 1-12
+             currentTime.tm_hour,
+             currentTime.tm_min);
+
+    todoItems[todoCount].isCompleted = false;  // New todos start as incomplete
+    todoCount++;  // Increase our todo counter
 }
 
-void printAllTodo()
-{
-    printf("+----+-------------------------------------+--------------+-------------+\n");
+// Display all todos in a nice table
+void displayTodos() {
+    // Table header
+    printf("\n+----+-------------------------------------+--------------+-------------+\n");
     printf("| ID |            Todo Title               |  Created at  |  Completed  |\n");
     printf("+----+-------------------------------------+--------------+-------------+\n");
 
-    for (int i = 0; i < tLength; i++)
-    {
-        if (todos[i].isCompleted)
-        {
-            printf("\033[10m");
-        }
-        else
-        {
-            printf("\033[1m");
+    for (int i = 0; i < todoCount; i++) {
+        // Strikethrough text for completed items
+        if (todoItems[i].isCompleted) {
+            printf("\033[9m");  // Enable strikethrough
+        } else {
+            printf("\033[1m");  // Bold text for active todos
         }
 
-        printf("|%3d | %-35s | %-12s | %-13s |\n", i + 1, todos[i].title, todos[i].createdAt, (!todos[i].isCompleted) ? " ❌  No  " : " ✅  Yes ");
+        // Print todo details
+        printf("|%3d | %-35s | %-12s | %-10s |\n",
+               i + 1,
+               todoItems[i].title,
+               todoItems[i].createdAt,
+               todoItems[i].isCompleted ? "✅ Yes" : "❌ No");
+
         printf("+----+-------------------------------------+--------------+-------------+\n");
+        printf("\033[0m");  // Reset text formatting
     }
 }
 
-void markAsComplete()
-{
+// Mark a todo as complete using its ID
+void completeTodo() {
     int todoId;
-    printf("Enter the ID of todo \n>>");
+    printf("Which todo did you finish? 🎉\n>> ");
     scanf("%d", &todoId);
-    todoId--;
-    if (todoId < 0 || todoId > tLength)
-    {
-        printf("Invalid todo id 😑\n");
-    }
-    else
-    {
-        todos[todoId].isCompleted = true;
-        printf("Todo marked as completed \n");
+    todoId--;  // Convert to 0-based index
+
+    if (todoId < 0 || todoId >= todoCount) {  // Check for valid ID
+        printf("That ID doesn't exist! 😕\n");
+    } else {
+        todoItems[todoId].isCompleted = true;
+        printf("Great job completing this! 💪\n");
     }
 }
 
-void deleteTodo()
-{
+// Delete a todo from the list
+void deleteTodo() {
     int todoId;
-    printf("Enter the ID of todo \n>>");
+    printf("Which todo to delete? 🗑️\n>> ");
     scanf("%d", &todoId);
-    if (todoId < 0 || todoId > tLength)
-    {
-        printf("Invalid todo id 😑\n");
-    }
-    else
-    {
-        todoId--;
-        memmove(todos + todoId, todos + todoId + 1, (tLength - todoId - 1) * sizeof(*todos));
-        tLength--;
-        printf("Your todo has been deleted 😵\n");
+
+    if (todoId < 1 || todoId > todoCount) {  // Check for valid ID
+        printf("That ID doesn't exist! 😕\n");
+    } else {
+        todoId--;  // Convert to 0-based index
+        // Shift todos after the deleted one to fill the gap
+        memmove(&todoItems[todoId], &todoItems[todoId + 1],
+               (todoCount - todoId - 1) * sizeof(struct TodoItem));
+        todoCount--;
+        printf("Todo deleted successfully! 🔥\n");
     }
 }
 
-void ShowOptions()
-{
-    char userChoice;
-    printf("Type 'A' to add, 'D' to delete & 'C' to mark complete or 'Q' to quit\n>>");
-    userChoice = getchar();
-    userChoice = toupper(userChoice);
-    getchar();
-    switch (userChoice)
-    {
-    case 'A':
-        addTodo();
-        break;
-    case 'D':
-        deleteTodo();
-        break;
-    case 'C':
-        markAsComplete();
-        break;
-    case 'Q':
-        exit(0);
-        break;
-    default:
-        printf("Command not found 😓\n");
-        ShowOptions();
-        break;
+// Show menu options and handle user input
+void showMenu() {
+    char choice;
+    printf("\nChoose action: (A)dd, (D)elete, (C)omplete, (Q)uit\n>> ");
+    scanf(" %c", &choice);  // Space before %c skips any leftover newlines
+    choice = toupper(choice);
+
+    // Clear input buffer
+    while (getchar() != '\n');
+
+    switch (choice) {
+        case 'A':
+            addTodo();
+            break;
+        case 'D':
+            deleteTodo();
+            break;
+        case 'C':
+            completeTodo();
+            break;
+        case 'Q':
+            printf("Goodbye! 👋\n");
+            exit(0);
+        default:
+            printf("Hmm, I don't understand that command 🤔\n");
+            showMenu();  // Show menu again if invalid input
+            break;
     }
-    saveToFile();
-    printAllTodo();
-    getchar();
-    ShowOptions();
+
+    saveToFile();     // Always save changes
+    displayTodos();   // Show updated list
+    showMenu();       // Keep showing menu until quit
 }
 
-void isThisFirstTime()
-{
-    if (access("todos.bin", F_OK) != -1)
-    {
-        readFromFile();
-        printAllTodo();
-        ShowOptions();
-    }
-    else
-    {
-        printf("Welcome to the Great Todo App\n");
+// Check if this is the first time running the app
+void checkFirstRun() {
+    if (access(TODO_FILE, F_OK) != -1) {  // File exists
+        loadFromFile();
+        displayTodos();
+        showMenu();
+    } else {  // First run - create first todo
+        printf("Welcome to your Todo Manager! 🚀\n");
         addTodo();
         saveToFile();
-        printAllTodo();
-        ShowOptions();
+        displayTodos();
+        showMenu();
     }
 }
 
-int main()
-{
-    system("clear||@cls");
-    printf("\033[32;1m");
-    isThisFirstTime();
+int main() {
+    system("clear || cls");  // Clear screen for both Unix/Windows
+    printf("\033[32;1m");    // Make text bright green
+    checkFirstRun();
+    return 0;
 }
