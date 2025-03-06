@@ -6,196 +6,231 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-// Maximum number of todos our app can handle
 #define MAX_TODOS 20
-// File name where todos are saved
-#define TODO_FILE "todos.bin"
+#define FILENAME "todos.dat"
+#define COLOR_RESET "\033[0m"
+#define COLOR_RED "\033[31m"
+#define COLOR_GREEN "\033[32m"
+#define COLOR_YELLOW "\033[33m"
+#define COLOR_CYAN "\033[36m"
+#define BOLD "\033[1m"
 
-int todoCount = 0;          // Tracks how many todos we currently have
-FILE *todoFile;             // Pointer to manage our todo file
+typedef struct {
+    char title[50];
+    char created_at[20];
+    bool completed;
+} Todo;
 
-// Structure to store todo information
-struct TodoItem {
-    char title[50];         // Title of the todo (max 49 characters)
-    char createdAt[50];     // When the todo was created (format: day/month hour:min)
-    bool isCompleted;       // Whether the todo is done (true/false)
-} todoItems[MAX_TODOS];     // Array to store all todo items
+Todo todos[MAX_TODOS];
+int todo_count = 0;
 
-// Save all todos to a binary file
-void saveToFile() {
-    todoFile = fopen(TODO_FILE, "w");
-    if (!todoFile) {
-        printf("Oops! Couldn't save todos 😞\n");
-    } else {
-        // Write each todo to the file
-        for (int i = 0; i < todoCount; i++) {
-            fwrite(&todoItems[i], sizeof(struct TodoItem), 1, todoFile);
-        }
-        fclose(todoFile);
+void clear_screen() {
+    system("clear || cls");
+}
+
+void print_header() {
+    clear_screen();
+    printf(COLOR_CYAN);
+    printf("┌───────────────────────────────────────────────┐\n");
+    printf("│              " COLOR_YELLOW BOLD "TODO MANAGER 3000" COLOR_RESET COLOR_CYAN "             │\n");
+    printf("└───────────────────────────────────────────────┘\n" COLOR_RESET);
+}
+
+void save_todos() {
+    FILE *file = fopen(FILENAME, "wb");
+    if (file) {
+        fwrite(todos, sizeof(Todo), todo_count, file);
+        fclose(file);
     }
 }
 
-// Calculate how many todos are stored in the file
-void calculateTodoCount() {
-    fseek(todoFile, 0L, SEEK_END);      // Jump to end of file
-    long fileSize = ftell(todoFile);    // Get file size
-    fseek(todoFile, 0L, SEEK_SET);      // Jump back to start
-    todoCount = fileSize / sizeof(struct TodoItem); // Calculate number of todos
-}
+void load_todos() {
+    FILE *file = fopen(FILENAME, "rb");
+    if (file) {
+        fseek(file, 0, SEEK_END);
+        long size = ftell(file);
+        rewind(file);
 
-// Load todos from the file into our array
-void loadFromFile() {
-    todoFile = fopen(TODO_FILE, "r");
-    if (!todoFile) {
-        printf("No existing todos found. Let's start fresh! 🌟\n");
-    } else {
-        calculateTodoCount();
-        // Read each todo from the file
-        for (int i = 0; i < todoCount; i++) {
-            fread(&todoItems[i], sizeof(struct TodoItem), 1, todoFile);
-        }
-        fclose(todoFile);
+        int max_possible = size / sizeof(Todo);
+        todo_count = (max_possible > MAX_TODOS) ? MAX_TODOS : max_possible;
+
+        // Read actual number of items successfully read
+        size_t items_read = fread(todos, sizeof(Todo), todo_count, file);
+        todo_count = (int)items_read;
+        fclose(file);
     }
 }
 
-// Add a new todo to the list
-void addTodo() {
-    char todoTitle[50];
-    printf("What's your new todo? 📝\n>> ");
-    scanf(" %[^\n]", todoTitle);  // Read until newline (space before % skips whitespace)
+void add_todo() {
+    if (todo_count >= MAX_TODOS) {
+        printf(COLOR_RED "\n⚠️ Todo list is full! Delete some todos first.\n" COLOR_RESET);
+        return;
+    }
 
-    // Copy title to our todo list
-    strncpy(todoItems[todoCount].title, todoTitle, 50);
+    printf(COLOR_GREEN "\n✏️  Add New Todo\n" COLOR_RESET);
+    printf(COLOR_YELLOW "───────────────────────────────\n" COLOR_RESET);
 
-    // Get current time and format it
-    time_t currentTimeRaw;
-    struct tm currentTime;
-    time(&currentTimeRaw);
-    localtime_r(&currentTimeRaw, &currentTime);
+    printf("Enter todo description: ");
+    fflush(stdout);
 
-    // Create time string (day/month hour:min)
-    snprintf(todoItems[todoCount].createdAt, 50, "%d/%d %02d:%02d",
-             currentTime.tm_mday,
-             currentTime.tm_mon + 1,  // Months are 0-11, so +1 to make it 1-12
-             currentTime.tm_hour,
-             currentTime.tm_min);
+    // Safe input handling with length check
+    if (!fgets(todos[todo_count].title, sizeof(todos[todo_count].title), stdin)) {
+        printf(COLOR_RED "\n⚠️ Error reading input!\n" COLOR_RESET);
+        return;
+    }
 
-    todoItems[todoCount].isCompleted = false;  // New todos start as incomplete
-    todoCount++;  // Increase our todo counter
+    // Trim newline and check length
+    size_t len = strlen(todos[todo_count].title);
+    if (len > 0 && todos[todo_count].title[len-1] == '\n') {
+        todos[todo_count].title[--len] = '\0';
+    }
+    if (len == 0) {
+        printf(COLOR_RED "\n❌ Todo title cannot be empty!\n" COLOR_RESET);
+        return;
+    }
+
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    strftime(todos[todo_count].created_at, sizeof(todos[todo_count].created_at),
+             "%d/%m %H:%M", &tm);
+
+    todos[todo_count].completed = false;
+    todo_count++;
+
+    printf(COLOR_GREEN "\n✅ Todo added successfully!\n" COLOR_RESET);
+    sleep(1);
 }
 
-// Display all todos in a nice table
-void displayTodos() {
-    // Table header
-    printf("\n+----+-------------------------------------+--------------+-------------+\n");
-    printf("| ID |            Todo Title               |  Created at  |  Completed  |\n");
-    printf("+----+-------------------------------------+--------------+-------------+\n");
+void display_todos() {
+    if (todo_count == 0) {
+        printf(COLOR_YELLOW "\n📭 No todos found! Add some todos to get started.\n" COLOR_RESET);
+        return;
+    }
 
-    for (int i = 0; i < todoCount; i++) {
-        // Strikethrough text for completed items
-        if (todoItems[i].isCompleted) {
-            printf("\033[9m");  // Enable strikethrough
+    printf(COLOR_CYAN "\n📋 Todo List\n");
+    printf("┌─────┬──────────────────────────────────────┬────────────┬────────────┐\n");
+    printf("│ " BOLD "ID " COLOR_RESET COLOR_CYAN "│ " BOLD "%-40s " COLOR_RESET COLOR_CYAN "│ " BOLD "Created  " COLOR_RESET COLOR_CYAN "│ " BOLD "Status   " COLOR_RESET COLOR_CYAN "│\n", "Description");
+    printf("├─────┼──────────────────────────────────────┼────────────┼────────────┤\n");
+
+    for (int i = 0; i < todo_count; i++) {
+        // Increased buffer size for status messages
+        char status[32];
+        if (todos[i].completed) {
+            snprintf(status, sizeof(status), "%sDONE%s%s", COLOR_GREEN, COLOR_RESET, COLOR_CYAN);
         } else {
-            printf("\033[1m");  // Bold text for active todos
+            snprintf(status, sizeof(status), "%sPENDING%s%s", COLOR_RED, COLOR_RESET, COLOR_CYAN);
         }
 
-        // Print todo details
-        printf("|%3d | %-35s | %-12s | %-10s |\n",
-               i + 1,
-               todoItems[i].title,
-               todoItems[i].createdAt,
-               todoItems[i].isCompleted ? "✅ Yes" : "❌ No");
+        printf("│ " COLOR_YELLOW "%3d " COLOR_CYAN "│ %-40.40s │ %-10.10s │ %-10.10s │\n",
+               i + 1, todos[i].title, todos[i].created_at, status);
 
-        printf("+----+-------------------------------------+--------------+-------------+\n");
-        printf("\033[0m");  // Reset text formatting
+        if (i < todo_count - 1) {
+            printf("├─────┼──────────────────────────────────────┼────────────┼────────────┤\n");
+        }
     }
+    printf("└─────┴──────────────────────────────────────┴────────────┴────────────┘\n" COLOR_RESET);
 }
 
-// Mark a todo as complete using its ID
-void completeTodo() {
-    int todoId;
-    printf("Which todo did you finish? 🎉\n>> ");
-    scanf("%d", &todoId);
-    todoId--;  // Convert to 0-based index
-
-    if (todoId < 0 || todoId >= todoCount) {  // Check for valid ID
-        printf("That ID doesn't exist! 😕\n");
-    } else {
-        todoItems[todoId].isCompleted = true;
-        printf("Great job completing this! 💪\n");
+void mark_complete() {
+    int id;
+    printf("\nEnter todo ID to mark complete: ");
+    if (scanf("%d", &id) != 1) {
+        printf(COLOR_RED "\n⚠️ Invalid input! Please enter a number.\n" COLOR_RESET);
+        while (getchar() != '\n');
+        return;
     }
+
+    if (id < 1 || id > todo_count) {
+        printf(COLOR_RED "\n⚠️ Invalid ID! Please try again.\n" COLOR_RESET);
+        return;
+    }
+
+    todos[id-1].completed = true;
+    printf(COLOR_GREEN "\n🎉 Todo marked as complete!\n" COLOR_RESET);
+    sleep(1);
 }
 
-// Delete a todo from the list
-void deleteTodo() {
-    int todoId;
-    printf("Which todo to delete? 🗑️\n>> ");
-    scanf("%d", &todoId);
-
-    if (todoId < 1 || todoId > todoCount) {  // Check for valid ID
-        printf("That ID doesn't exist! 😕\n");
-    } else {
-        todoId--;  // Convert to 0-based index
-        // Shift todos after the deleted one to fill the gap
-        memmove(&todoItems[todoId], &todoItems[todoId + 1],
-               (todoCount - todoId - 1) * sizeof(struct TodoItem));
-        todoCount--;
-        printf("Todo deleted successfully! 🔥\n");
+void delete_todo() {
+    int id;
+    printf("\nEnter todo ID to delete: ");
+    if (scanf("%d", &id) != 1) {
+        printf(COLOR_RED "\n⚠️ Invalid input! Please enter a number.\n" COLOR_RESET);
+        while (getchar() != '\n');
+        return;
     }
+
+    if (id < 1 || id > todo_count) {
+        printf(COLOR_RED "\n⚠️ Invalid ID! Please try again.\n" COLOR_RESET);
+        return;
+    }
+
+    for (int i = id-1; i < todo_count-1; i++) {
+        todos[i] = todos[i+1];
+    }
+    todo_count--;
+
+    printf(COLOR_GREEN "\n🗑️ Todo deleted successfully!\n" COLOR_RESET);
+    sleep(1);
 }
 
-// Show menu options and handle user input
-void showMenu() {
-    char choice;
-    printf("\nChoose action: (A)dd, (D)elete, (C)omplete, (Q)uit\n>> ");
-    scanf(" %c", &choice);  // Space before %c skips any leftover newlines
-    choice = toupper(choice);
-
-    // Clear input buffer
-    while (getchar() != '\n');
-
-    switch (choice) {
-        case 'A':
-            addTodo();
-            break;
-        case 'D':
-            deleteTodo();
-            break;
-        case 'C':
-            completeTodo();
-            break;
-        case 'Q':
-            printf("Goodbye! 👋\n");
-            exit(0);
-        default:
-            printf("Hmm, I don't understand that command 🤔\n");
-            showMenu();  // Show menu again if invalid input
-            break;
-    }
-
-    saveToFile();     // Always save changes
-    displayTodos();   // Show updated list
-    showMenu();       // Keep showing menu until quit
-}
-
-// Check if this is the first time running the app
-void checkFirstRun() {
-    if (access(TODO_FILE, F_OK) != -1) {  // File exists
-        loadFromFile();
-        displayTodos();
-        showMenu();
-    } else {  // First run - create first todo
-        printf("Welcome to your Todo Manager! 🚀\n");
-        addTodo();
-        saveToFile();
-        displayTodos();
-        showMenu();
-    }
+void print_menu() {
+    printf(COLOR_YELLOW "\n🛠️  Main Menu\n");
+    printf("───────────────────────────────\n" COLOR_RESET);
+    printf(COLOR_CYAN "[A]" COLOR_RESET "dd new todo\n");
+    printf(COLOR_CYAN "[D]" COLOR_RESET "elete todo\n");
+    printf(COLOR_CYAN "[C]" COLOR_RESET "omplete todo\n");
+    printf(COLOR_CYAN "[Q]" COLOR_RESET "uit program\n");
+    printf(COLOR_YELLOW "───────────────────────────────\n" COLOR_RESET);
+    printf("Enter your choice: ");
 }
 
 int main() {
-    system("clear || cls");  // Clear screen for both Unix/Windows
-    printf("\033[32;1m");    // Make text bright green
-    checkFirstRun();
+    clear_screen();
+    printf(COLOR_YELLOW BOLD);
+    printf("Initializing Todo Manager...\n");
+    for(int i = 0; i < 3; i++) {
+        printf("✨");
+        fflush(stdout);
+        sleep(1);
+    }
+    printf(COLOR_RESET "\n");
+
+    load_todos();
+
+    while(1) {
+        print_header();
+        display_todos();
+        print_menu();
+
+        char choice;
+        scanf(" %c", &choice);
+        choice = toupper(choice);
+
+        // Clear input buffer
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
+
+        switch(choice) {
+            case 'A':
+                add_todo();
+                break;
+            case 'D':
+                delete_todo();
+                break;
+            case 'C':
+                mark_complete();
+                break;
+            case 'Q':
+                save_todos();
+                printf(COLOR_GREEN "\n👋 Goodbye! Your todos are saved.\n" COLOR_RESET);
+                exit(0);
+            default:
+                printf(COLOR_RED "\n⚠️ Invalid choice! Please try again.\n" COLOR_RESET);
+                sleep(1);
+                break;
+        }
+        save_todos();
+    }
     return 0;
 }
